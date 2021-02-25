@@ -18,11 +18,21 @@ var oauth_token string = "720752019087208450-GXyTdpZAyq4UXNMccgixYCx1WuThptF"
 var oauth_token_secret string = "qxzlGqBFT3jz1KTXHiW4knwo6aayWyR43DJ0HJm5hKn3Z"
 var oauth_signature_method string = "HMAC-SHA1"
 var oauth_version string = "1.0"
+
+
+type RateLimit string // error type
+var r RateLimit = "Rate Limit Hit"
+var nf RateLimit = "Not Found"
+func (r RateLimit) Error() string{
+	return string(r)
+}
+
 /*
 Generates timestamp based on Unix
 Unix time is the amount of seconds elapsed since UTC 0:00 January 1st 1970
 This metric is nessecary for OAUTH 1.0
 */
+
 func generateTimestamp() int64{ //generate the oauth timestamp
 	return time.Now().Unix()
 }
@@ -139,7 +149,7 @@ func generateAuth1(twitUrl, method string, other map[string]string) string{
 	return oauth
 
 }
-func getBearer() string{ //username is oauth_consumer_key password is oauth_consumer_private
+func getBearer() (string, error){ //username is oauth_consumer_key password is oauth_consumer_private
 	base_url := "https://api.twitter.com/oauth2/token"
 	method := "POST"
 	basic := oauth_consumer_key +":"+oauth_consumer_private
@@ -152,18 +162,21 @@ func getBearer() string{ //username is oauth_consumer_key password is oauth_cons
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil{
-		return "" //error
+		return "", r  //error
 	}
 	body_resp, _ := ioutil.ReadAll(resp.Body)
 	var json_data interface{} //store unmarshal there
 	err = json.Unmarshal(body_resp, &json_data)
 	//fmt.Printf("%s", body_resp)
 	if err != nil {
-		return ""
+		return "", r
 	}
-	 access_token:= (json_data.(map[string]interface{}))["access_token"].(string)
+	 access_token, ok := (json_data.(map[string]interface{}))["access_token"].(string)
+	 if(!ok){
+		 return "", r //rate limit has been hit
+	 }
 	//fmt.Printf("%s", access_token)
-	return access_token
+	return access_token, nil
 }
 
 
@@ -171,67 +184,101 @@ func getBearer() string{ //username is oauth_consumer_key password is oauth_cons
 
 
 //Everything Between this comment and the OAuth1.0 comment is the OAuth 2.0 stuff
-func getID2 (handle string ) string{ //this is the getHandle method for Twitter API 2.0
+func getID2 (handle string ) (string, error){ //this is the getHandle method for Twitter API 2.0
 	 base_url := "https://api.twitter.com/2/users/by/username/" + handle
-	 access_token := getBearer()
+	 access_token, err := getBearer()
+	 if err != nil{
+		 return "", r
+	 }
 	 oauth2_string := "Bearer " + access_token
 	 method := "GET"
 	 req, _ := http.NewRequest(method, base_url, nil)
 	 req.Header.Add("Authorization",oauth2_string)
 	 resp, err := http.DefaultClient.Do(req)
 	 if err != nil{
-		 return ""
+		 return "", r
 	 }
 	 body_resp, _ := ioutil.ReadAll(resp.Body)
 		var json_data interface{}
 		err = json.Unmarshal(body_resp, &json_data)
-		id := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["id"].(string)
-	 return id
+		id, ok := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["id"].(string)
+		if !ok{
+			return "", r
+		}
+	 return id, nil
 }
-func getHandle2(id string) string{ //test id: 147039284 -> Asmongold
+
+
+
+func getHandle2(id string) (string,error){ //test id: 147039284 -> Asmongold
 	base_url := "https://api.twitter.com/2/users/" + id
-	access_token := getBearer()
+	access_token,err := getBearer()
+	if err != nil{
+		return "", r
+	}
 	oauth2_string := "Bearer " + access_token
 	method := "GET"
 	req, _ := http.NewRequest(method, base_url, nil)
 	 req.Header.Add("Authorization",oauth2_string)
 	 resp, err := http.DefaultClient.Do(req)
 	 if err != nil{
-		 return ""
+		 return "",r
 	 }
 	 body_resp, _ := ioutil.ReadAll(resp.Body)
 		var json_data interface{}
 		err = json.Unmarshal(body_resp, &json_data)
-		handle := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["username"].(string)
-		fmt.Printf("%s", handle)
-		return ""
+		handle,ok := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["username"].(string)
+		if !ok{
+	 		 return "", r
+		}
+
+		return handle, nil
 }
-func getFollows2(id string) []string{
+func getFollows2(id string) ([]string,error){
 	base_url := "https://api.twitter.com/1.1/friends/ids.json?user_id="+id
-	access_token := getBearer()
+	access_token, err := getBearer()
+	if err != nil{
+
+		return nil, r
+	}
 	oauth2_string := "Bearer " + access_token
 	method := "GET"
 	req, _ := http.NewRequest(method, base_url, nil)
 	req.Header.Add("Authorization",oauth2_string)
 	resp, err := http.DefaultClient.Do(req)
+
 	if err != nil{
-		return []string{""}
+		return nil,r
+
 	}
 	body_resp, _ := ioutil.ReadAll(resp.Body)
 	var json_data interface{}
 	err = json.Unmarshal(body_resp, &json_data)
+	if err != nil{
+		return nil, r
+	}
+
 	ret := make([]string, 0)
+
 	id_list, ok := json_data.(map[string]interface{})["ids"].([]interface{})
-	if !ok{
-		return []string{""}
+	if !ok{ //rate limit
+		if resp.StatusCode == 404{
+			return nil, nf
+		}
+		return nil, r
 	}
 	for _, v := range id_list{
 		ret = append(ret,strconv.Itoa(int(v.(float64))))
 	}
 
 
-	return ret
+	return ret, nil
 }
+
+
+
+
+
 
 func getID(handle string) string{ //This is for the now deprecated 1.1 Twitter API
 	base_url := "https://api.twitter.com/1.1/users/lookup.json"
@@ -287,7 +334,8 @@ func getFollowers(id string) []string{ //only the first page
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	resp, _ := http.DefaultClient.Do(req)
 	body, _ := ioutil.ReadAll(resp.Body)
-	//fmt.Println(string(body))
+
+
 	var json_data interface{}
 	json.Unmarshal(body, &json_data)
 	ids, ok := ((json_data.(map[string]interface{})["ids"]).([]interface{}))
@@ -328,8 +376,9 @@ func wheresObama(handle string){ //start is a handle
 			if len(pull) != 0{ //make sure we haven't already visited it and that pull is not empty. The reason we need to check again is because this a queue and it lands up at the bottom.
 				if !checkVisited(visited, pull[0]){
 					checking = getFollowers(pull[0])
-					pull = pull[1:]
+
 					visited =  append(visited, pull[0])
+					pull = pull[1:]
 					levels++;
 				}else{
 					pull = pull[1:]
@@ -352,42 +401,80 @@ func wheresObama(handle string){ //start is a handle
 	}
 
 }
+/*
+Optimization:
+Due to the rate limit, I have implemented a edited version of BFS
+
+Pull means to get the people the person follows
+*/
 func wheresObama2(handle string){ //start is a handle
 
 	levels := 0
-	checking := getFollows2(getID2(handle))
-	pull := make([]string, 0)
-	visited := make([]string, 0)
-	for 1 == 1{
-		for len(checking) == 0{
-			if len(pull) != 0{ //make sure we haven't already visited it and that pull is not empty. The reason we need to check again is because this a queue and it lands up at the bottom.
-				if !checkVisited(visited, pull[0]){
-					checking = getFollows2(pull[0])
-					pull = pull[1:]
-					visited =  append(visited, pull[0])
-					levels++;
-				}else{
-					pull = pull[1:]
-				}
+	var checking []string
+	var getFollowsTemp []string
+	pull := make([]string, 0) //stuff we need to pull
+	visited := make([]string, 0) //people we've visited already
+	id, err := getID2(handle)
+	if err != nil{
+			fmt.Println("Could not find Obama within the rate limit")
+		return;
+	}
+	checking , err = getFollows2(id) //person we are checking, start with our input handle
+	if err != nil{
+			fmt.Println("Could not find Obama within the rate limit")
+		return;
+	}
+	//fmt.Println("got here")
+	for true{ //infinite for loop
+	//	for len(checking) == 0{ // This entire code block here is to keep pulling from the pull list until we get people with friends. This code block only runs once we have exhausted our pull list and is inteded to refill the checking lsit
+
+		if len(checking) == 0 && err == nil{ //only run this block is checking is 0
+			levels++
+			for len(pull) != 0 { //make sure we haven't already visited it and that pull is not empty. The reason we need to check again is because this a queue and it lands up at the bottom.
+				 //we shall now move onto the next level
+				if !checkVisited(visited, pull[0]){ //check visited lmao
+					getFollowsTemp, err = getFollows2(pull[0]) //get the followings of this person
+					if err != nil{
+
+						if err == nf{
+							pull = pull[1:]
+							continue
+						}
+						break
+					}
+
+					checking = append(checking, getFollowsTemp...)
+					visited =  append(visited, pull[0]) //append to visited
+					pull = pull[1:] //pop this person off the pull queue
+
 			}else{
-				fmt.Println("Could not find Obama within the rate limit")
-				return; //we are out of users pull and checking so there are no more to do
+				pull = pull[1:] //skip this one
 			}
 		}
-		if /*!checkVisited(visited, checking[0]) &&*/checking[0] != OBAMA{ //is it obama????
-			pull = append(pull, checking[0])
-			checking = checking[1:]
+	}
+
+
+	/*	for _, v:= range checking {
+			fmt.Printf("%s\n",v)
+		}*/
+
+		if len(checking) == 0{
+			fmt.Println("Could not find Obama within the rate limit")
+			return;
+		}else if checking[0] != OBAMA{ //is it obama????
+			pull = append(pull, checking[0]) //this person is not obama. Put them onto the queue to be pulled
+			checking = checking[1:] //pop them off the checking queue
 
 		}else{ // it is obama!
 			fmt.Println("Obama is", levels, "levels away!")
 			return;
 		}
-
-
 	}
 
 }
+
+
 func main(){
-	wheresObama2("elonmusk")
-	//getFollows2("147039284")
+	wheresObama2("Quackity")
+
 }
