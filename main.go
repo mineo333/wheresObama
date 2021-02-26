@@ -10,7 +10,7 @@ import "crypto/sha1"
 import "sort"
 import "encoding/json"
 import "strings"
-import "strconv"
+//import "strconv"
 var OBAMA string = "813286" // Obama's id
 var oauth_consumer_key string = "Nu8BfNwhxwQXz4kouqLKC3Ebx"
 var oauth_consumer_private string = "7zfETyc2rjcqtvAdutGHiPrPCh7wvqjJqPNcTpfMiupRGbNYdK"
@@ -201,13 +201,26 @@ func getID2 (handle string ) (string, error){ //this is the getHandle method for
 	 body_resp, _ := ioutil.ReadAll(resp.Body)
 		var json_data interface{}
 		err = json.Unmarshal(body_resp, &json_data)
-		id, ok := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["id"].(string)
-		if !ok{
-			return "", r
-		}
-	 return id, nil
-}
+	//	fmt.Printf("%s", body_resp)
+		//id, ok := json_data.(map[string]interface{})["data"].(map[string]interface{})["id"].(string)
 
+	 return parseGetID2(json_data)
+}
+func parseGetID2(json_data interface{}) (string, error){
+	level1, ok1 := json_data.(map[string]interface{})
+	if !ok1{
+		 return "", r
+	}
+	level2, ok2 := level1["data"].(map[string]interface{})
+	if !ok2{
+		 return "", r
+	}
+	handle, ok3 := level2["id"].(string)
+	if !ok3{
+		 return "", r
+	}
+	return handle, nil
+}
 
 
 func getHandle2(id string) (string,error){ //test id: 147039284 -> Asmongold
@@ -227,15 +240,31 @@ func getHandle2(id string) (string,error){ //test id: 147039284 -> Asmongold
 	 body_resp, _ := ioutil.ReadAll(resp.Body)
 		var json_data interface{}
 		err = json.Unmarshal(body_resp, &json_data)
-		handle,ok := (((json_data.(map[string]interface{}))["data"]).(map[string]interface{}))["username"].(string)
-		if !ok{
-	 		 return "", r
+		if err != nil{
+			return "", r
 		}
+		return parseGetHandle2(json_data)
 
-		return handle, nil
 }
+
+func parseGetHandle2(json_data interface{}) (string, error){
+	level1, ok1 := json_data.(map[string]interface{})
+	if !ok1{
+		 return "", r
+	}
+	level2, ok2 := level1["data"].(map[string]interface{})
+	if !ok2{
+		 return "", r
+	}
+	handle, ok3 := level2["username"].(string)
+	if !ok3{
+		 return "", r
+	}
+	return handle, nil
+}
+
 func getFollows2(id string) ([]string,error){
-	base_url := "https://api.twitter.com/1.1/friends/ids.json?user_id="+id
+	base_url := "https://api.twitter.com/2/users/"+id+"/following"
 	access_token, err := getBearer()
 	if err != nil{
 
@@ -258,23 +287,42 @@ func getFollows2(id string) ([]string,error){
 		return nil, r
 	}
 
-	ret := make([]string, 0)
 
-	id_list, ok := json_data.(map[string]interface{})["ids"].([]interface{})
-	if !ok{ //rate limit
-		if resp.StatusCode == 404{
-			return nil, nf
-		}
-		return nil, r
-	}
-	for _, v := range id_list{
-		ret = append(ret,strconv.Itoa(int(v.(float64))))
-	}
-
-
-	return ret, nil
+	return parseFollows2(json_data, resp.StatusCode)
 }
 
+func parseFollows2(json_data interface{}, StatusCode int) ([]string, error){
+	ret := make([]string, 0)
+		level1, ok1 := json_data.(map[string]interface{})
+
+		if !ok1{ //rate limit
+			if StatusCode == 404{
+				return nil, nf
+			}
+			return nil, r
+		}
+
+
+		data_arr, ok2 := level1["data"].([]interface{})
+
+
+		if !ok2{ //rate limit
+			if StatusCode == 404{
+				return nil, nf
+			}
+			return nil, r
+		}
+
+
+
+		for _,v:= range data_arr{
+			ret = append(ret, v.(map[string]interface{})["id"].(string))
+		}
+	return ret, nil
+
+
+
+}
 
 
 
@@ -407,18 +455,19 @@ Due to the rate limit, I have implemented a edited version of BFS
 
 Pull means to get the people the person follows
 */
-func wheresObama2(handle string){ //start is a handle
+func wheresObama2(id string){ //start is a handle
 
 	levels := 0
 	var checking []string
 	var getFollowsTemp []string
+	var err error
 	pull := make([]string, 0) //stuff we need to pull
 	visited := make([]string, 0) //people we've visited already
-	id, err := getID2(handle)
+	/*id, err := getID2(handle)
 	if err != nil{
 			fmt.Println("Could not find Obama within the rate limit")
 		return;
-	}
+	}*/
 	checking , err = getFollows2(id) //person we are checking, start with our input handle
 	if err != nil{
 			fmt.Println("Could not find Obama within the rate limit")
@@ -475,6 +524,19 @@ func wheresObama2(handle string){ //start is a handle
 
 
 func main(){
-	wheresObama2("Quackity")
+	var handle string
+	var id string
+	var err error
+	for true{
+		fmt.Println("Please enter a valid Twitter handle: ")
+		fmt.Scanln(&handle)
+		id, err = getID2(handle)
+		if err == nil{
+			break
+		}
+		fmt.Println("This is not a valid Twitter handle")
+	}
+
+	wheresObama2(id)
 
 }
