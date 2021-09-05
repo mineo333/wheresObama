@@ -1,4 +1,4 @@
-#Where's Obama 2.0
+# Where's Obama 2.0
 
 Last year, I did a project where I effectively implemented Twitter4J in golang. Using the my Twitter4J implementation, I made a program called Where's Obama which finds how far a given user is from Obama based on who they are following.
 
